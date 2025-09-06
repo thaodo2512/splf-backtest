@@ -1,0 +1,50 @@
+# Root output directories
+paths:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  features_dir: data/features
+  artifacts_dir: artifacts
+
+# Universe and period
+universe:
+  tier_a: ["BTCUSDT", "ETHUSDT"]
+  tier_b: []
+  tier_c: []
+  symbols: ["BTCUSDT"]  # explicit override if set (non-empty)
+period:
+  start: "2023-06-01"
+  end: "2023-06-07"
+
+# Download datasets toggle
+datasets:
+  indexPriceKlines_1m: true
+  markPriceKlines_1m: true
+  premiumIndexKlines_1m: true
+  klines_1m: true
+  aggTrades: true
+  bookTicker: true
+  fundingRate_monthly: true
+  spot_aggTrades: false
+
+# Feature settings
+features:
+  rv_window_min: 15
+  basis_twap_minutes: [60, 120]
+  cvd_windows_min: [5, 15]
+  spot_for: ["BTCUSDT", "ETHUSDT"]
+
+# Backtest settings
+backtest:
+  resample_5m: true
+  train_window_days: 30
+  retrain_every_hours: 8
+  score_qtile: 0.98
+  prealert_consecutive_mins: 2
+  confirm_bars_5m: 1
+  mask_funding_minutes: 10
+  horizons_min: [30, 60, 90, 120]
+
+# Runtime
+runtime:
+  workers: 4
+  force: false

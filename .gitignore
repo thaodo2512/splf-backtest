@@ -1,0 +1,19 @@
+__pycache__/
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.DS_Store
+.python-version
+
+# Data artifacts
+data/
+artifacts/
+outputs/
+*.parquet
+*.csv
+*.zip
+*.log
