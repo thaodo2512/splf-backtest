@@ -49,8 +49,21 @@ def main():
     outcomes_df = pd.concat(all_outcomes)
     metrics = compute_metrics(alerts_df, outcomes_df, horizons)
     out_dir = ensure_dir(Path(paths["artifacts_dir"]) / "metrics")
+    # Save metrics
     save_json(out_dir / "metrics.json", metrics)
-    print(f"Saved metrics to {out_dir / 'metrics.json'}")
+    # Save full concatenations for downstream analysis/visualization
+    alerts_df.to_csv(out_dir / "alerts_all.csv", index=False)
+    outcomes_df.to_csv(out_dir / "outcomes_all.csv", index=False)
+    merged = alerts_df.merge(outcomes_df, on=["ts", "symbol"], how="left")
+    merged.to_csv(out_dir / "alert_outcomes.csv", index=False)
+    # Optional parquet
+    try:
+        alerts_df.to_parquet(out_dir / "alerts_all.parquet")
+        outcomes_df.to_parquet(out_dir / "outcomes_all.parquet")
+        merged.to_parquet(out_dir / "alert_outcomes.parquet")
+    except Exception:
+        pass
+    print(f"Saved metrics to {out_dir / 'metrics.json'} and full results to {out_dir}")
 
 
 if __name__ == "__main__":
