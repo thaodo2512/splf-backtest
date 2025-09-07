@@ -54,7 +54,12 @@ def main():
         model_backend=cfg.get("model", {}).get("backend", "auto"),
     )
 
-    workers = int(cfg.get("runtime", {}).get("workers", 1))
+    # Auto-detect reasonable workers if not specified or set to 0
+    cfg_workers = cfg.get("runtime", {}).get("workers")
+    if cfg_workers in (None, 0, "auto"):
+        workers = max(1, min(len(symbols), (os.cpu_count() or 1)))
+    else:
+        workers = int(cfg_workers)
     print(f"Backtesting {len(symbols)} symbols with {workers} workers (backend={bt_cfg.model_backend})…")
     if workers > 1 and len(symbols) > 1:
         with ProcessPoolExecutor(max_workers=workers) as ex:

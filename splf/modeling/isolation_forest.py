@@ -50,6 +50,9 @@ class IFModel:
         self.scaler = RobustScaler()
         self.backend = backend  # 'auto' | 'sklearn' | 'cuml'
         self._use_cuml = (_HAS_CUML and backend in ("auto", "cuml"))
+        if backend == "cuml" and not _HAS_CUML:
+            import warnings
+            warnings.warn("Backend 'cuml' requested but cuML/CuPy not available; falling back to sklearn.")
         if self._use_cuml:
             # cuML model will be created lazily to avoid GPU init in CPU paths
             self.model = None

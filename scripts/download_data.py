@@ -26,7 +26,13 @@ def main():
     period = cfg["period"]
     datasets = [k for k, v in cfg.get("datasets", {}).items() if v]
 
-    dl = BinanceDownloader(paths["raw_dir"], workers=cfg.get("runtime", {}).get("workers", 4))
+    # Auto-detect reasonable workers for I/O bound downloads if not specified or set to 0
+    cfg_workers = cfg.get("runtime", {}).get("workers")
+    if cfg_workers in (None, 0, "auto"):
+        workers = max(2, (os.cpu_count() or 2))  # threads; downloads benefit from more
+    else:
+        workers = int(cfg_workers)
+    dl = BinanceDownloader(paths["raw_dir"], workers=workers)
     tasks = dl.plan(symbols, period["start"], period["end"], datasets)
     results = dl.download(tasks, force=args.force or cfg.get("runtime", {}).get("force", False))
     ok = sum(1 for _, b in results if b)

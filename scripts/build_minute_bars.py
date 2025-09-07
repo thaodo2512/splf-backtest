@@ -39,7 +39,12 @@ def main():
     period = cfg["period"]
     include_spot = cfg.get("datasets", {}).get("spot_aggTrades", False)
 
-    workers = int(cfg.get("runtime", {}).get("workers", 1))
+    # Auto-detect reasonable workers if not specified or set to 0
+    cfg_workers = cfg.get("runtime", {}).get("workers")
+    if cfg_workers in (None, 0, "auto"):
+        workers = max(1, min(len(symbols), (os.cpu_count() or 1)))
+    else:
+        workers = int(cfg_workers)
     spot_for = set(cfg.get("features", {}).get("spot_for", []))
     print(f"Building 1m for {len(symbols)} symbols with {workers} workers…")
     if workers > 1 and len(symbols) > 1:

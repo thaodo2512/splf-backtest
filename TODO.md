@@ -19,7 +19,11 @@ Instructions
 Copy/paste in order as needed (adjust config path):
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+# Environment (pyenv + conda)
+pyenv local miniforge3-24.11.3-2
+# If creating fresh env:
+conda create -n splf -y
+conda activate splf
 pip install -r requirements.txt
 
 # Data → Minute → Features → Backtest → Metrics
@@ -53,4 +57,3 @@ Use this section when tracking a bug.
 - Suspected Module(s): `splf/...`
 - Fix Plan: Minimal, targeted change + add/adjust a test.
 - Verification: Command(s) used to validate the fix.
-

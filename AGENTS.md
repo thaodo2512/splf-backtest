@@ -13,8 +13,10 @@
 - `notebooks/` Research notebooks (keep lightweight in PRs).
 
 ## Build, Test, and Development Commands
-- Environment
-  - `python -m venv .venv && source .venv/bin/activate`
+- Environment (pyenv + conda)
+  - `pyenv local miniforge3-24.11.3-2`
+  - `conda create -n splf -y` (first time)
+  - `conda activate splf`
   - `pip install -r requirements.txt`
 - Pipeline
   - `python scripts/download_data.py --config config/config.yaml`
@@ -23,6 +25,7 @@
   - `python scripts/run_backtest.py --config config/config.yaml`
   - `python scripts/analyze_results.py --config config/config.yaml`
 - Optional tools (if installed): `black .`, `ruff .` for quick style checks.
+ - Environment check: `python scripts/check_env.py` (CPU cores, RAM, GPU/cuML availability).
 
 ## Coding Style & Naming Conventions
 - Python 3; PEP 8; 4‑space indentation; type hints where practical.
@@ -42,7 +45,13 @@
 ## Security & Configuration Tips
 - Data uses Binance public dumps; downloads are large. Adjust `universe`, `period`, and `datasets.*` to control volume.
 - Parallelism via `runtime.workers`. For GPU, set `model.backend: cuml` (requires RAPIDS); otherwise `auto`/`sklearn`.
+  - Set `runtime.workers: 0` or `auto` to auto-detect cores (bounded by symbol count).
 - Use `--force` flags and `runtime.force` cautiously to overwrite existing files.
+
+### GPU on Jetson
+- Prefer conda (Miniforge). Try: `conda install -n splf -c conda-forge cupy`.
+- For cuML: `conda install -n splf -c rapidsai -c conda-forge cuml` (availability on Jetson/ARM varies by JetPack/CUDA; consult RAPIDS docs).
+- Verify with `python scripts/check_env.py` (should report GPU devices and `cuml` version).
 
 ## Agent-Specific Instructions
 - Role: Act as a professional developer building the SPLF backtest trading tool.

@@ -8,3 +8,6 @@ scikit-learn>=1.2
 python-dateutil>=2.8
 pyyaml>=6.0
 scipy>=1.9
+# Optional GPU acceleration (install via conda on Jetson/ARM)
+# cupy
+# cuml

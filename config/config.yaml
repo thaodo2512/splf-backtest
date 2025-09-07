@@ -10,7 +10,7 @@ universe:
   tier_a: ["BTCUSDT", "ETHUSDT"]
   tier_b: []
   tier_c: []
-  symbols: ["BTCUSDT"]  # explicit override if set (non-empty)
+  symbols: ["BTCUSDT", "ETHUSDT"]  # explicit override if set (non-empty)
 period:
   start: "2023-06-01"
   end: "2023-06-07"
