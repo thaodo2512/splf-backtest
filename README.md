@@ -73,3 +73,37 @@ Use the notebook-friendly helper to run steps interactively and get DataFrames b
     alerts = nb.backtest(["BTCUSDT"]) ["BTCUSDT"]
     metrics, outcomes = nb.analyze(["BTCUSDT"]) 
     metrics
+
+Jupyter Setup
+-------------
+Run notebooks with your conda env and a registered kernel.
+
+1) Activate env and install deps
+
+    pyenv local miniforge3-24.11.3-2
+    conda create -n splf -y  # once
+    conda activate splf
+    pip install -r requirements.txt
+    conda install -n splf -c conda-forge ipykernel -y
+
+2) Register the kernel
+
+    python -m ipykernel install --user --name splf --display-name "Python (splf)"
+
+3) Start Jupyter from the repo root and select the "Python (splf)" kernel
+
+    jupyter lab --no-browser --port 8888
+
+4) If you see `ModuleNotFoundError: splf`, add this as the first cell so notebooks can import the repo modules:
+
+    from pathlib import Path
+    import sys
+    root = Path.cwd()
+    if not (root / "splf").exists():
+        root = root.parent
+    sys.path.insert(0, str(root))
+    print("Repo root:", root)
+
+5) If you see a Parquet engine error in pandas, install one in the active kernel:
+
+    %pip install pyarrow fastparquet

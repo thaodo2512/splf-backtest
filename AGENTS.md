@@ -24,6 +24,7 @@
   - `python scripts/compute_features.py --config config/config.yaml`
   - `python scripts/run_backtest.py --config config/config.yaml`
   - `python scripts/analyze_results.py --config config/config.yaml`
+  - Visualize minute bars: `python scripts/visualize_minute_bar.py --config config/config.yaml --symbol BTCUSDT --show`
 - Optional tools (if installed): `black .`, `ruff .` for quick style checks.
  - Environment check: `python scripts/check_env.py` (CPU cores, RAM, GPU/cuML availability).
 

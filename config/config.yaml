@@ -7,13 +7,13 @@ paths:
 
 # Universe and period
 universe:
-  tier_a: ["BTCUSDT", "ETHUSDT"]
+  tier_a: ["BTCUSDT"]
   tier_b: []
   tier_c: []
-  symbols: ["BTCUSDT", "ETHUSDT"]  # explicit override if set (non-empty)
+  symbols: ["BTCUSDT"]  # explicit override if set (non-empty)
 period:
-  start: "2023-06-01"
-  end: "2023-06-07"
+  start: "2025-06-01"
+  end: "2025-06-04"
 
 # Download datasets toggle
 datasets:
@@ -24,14 +24,14 @@ datasets:
   aggTrades: true
   bookTicker: true
   fundingRate_monthly: true
-  spot_aggTrades: false
+  spot_aggTrades: true
 
 # Feature settings
 features:
   rv_window_min: 15
   basis_twap_minutes: [60, 120]
   cvd_windows_min: [5, 15]
-  spot_for: ["BTCUSDT", "ETHUSDT"]
+  spot_for: ["BTCUSDT"]
 
 # Backtest settings
 backtest:
@@ -46,7 +46,7 @@ backtest:
 
 # Runtime
 runtime:
-  workers: 4
+  workers: 1
   force: false
 
 # Model settings

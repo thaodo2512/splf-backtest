@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+import logging
 import numpy as np
 import pandas as pd
 from dateutil import tz
@@ -40,12 +41,37 @@ def _safe_float(s: pd.Series) -> pd.Series:
     return pd.to_numeric(s, errors="coerce")
 
 
+def _normalize_ts_ms(ts: pd.Series, context: str = "") -> pd.Series:
+    """Heuristically normalize timestamps to milliseconds.
+    Handles seconds, microseconds, or nanoseconds by inspecting magnitude.
+    """
+    s = pd.to_numeric(ts, errors="coerce")
+    sv = s.dropna()
+    if sv.empty:
+        return s
+    med = float(sv.median())
+    # typical ms since epoch ~ 1.6e12 in 2020s
+    # seconds ~ 1.6e9; microseconds ~ 1.6e15; nanoseconds ~ 1.6e18
+    factor = 1.0
+    if med > 1e17:
+        factor = 1e6  # ns → ms
+    elif med > 1e14:
+        factor = 1e3  # us → ms
+    elif med < 1e11:
+        factor = 1e-3  # s → ms
+    if factor != 1.0:
+        s = s / factor
+    return s
+
+
 def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end: str, include_spot: bool = False) -> pd.DataFrame:
     """
     Build a unified 1-minute DataFrame from daily zip files between start and end.
     Columns: index_px, perp_mark, premium, bid, ask, spread_bps, taker_buy_qty, taker_sell_qty, vol_perp, vol_spot (opt)
     """
+    logger = logging.getLogger(__name__)
     raw = Path(raw_dir) / symbol
+    logger.debug(f"minute_builder.start symbol={symbol} raw_dir={raw} start={start} end={end} include_spot={include_spot}")
 
     # aggregate per day then concat
     frames: List[pd.DataFrame] = []
@@ -67,6 +93,9 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             return raw / dir_map[ds]
 
         # index price klines (1m): [open time, open, high, low, close, close time, ...]
+        logger.debug(
+            f"paths date={date_str} index={p('indexPriceKlines_1m').exists()} mark={p('markPriceKlines_1m').exists()} prem={p('premiumIndexKlines_1m').exists()} agg={p('aggTrades').exists()} bt={p('bookTicker').exists()} spot={p('spot_aggTrades').exists()}"
+        )
         idx_cols = [
             "open_time",
             "open",
@@ -87,6 +116,7 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             df_index["ts"] = pd.to_numeric(df_index["ts"], errors="coerce")
             df_index["index_px"] = pd.to_numeric(df_index["index_px"], errors="coerce")
             df_index = df_index.dropna(subset=["ts"])  # drop header if present
+        logger.debug(f"read index df rows={len(df_index)} date={date_str}")
 
         # mark price klines (1m)
         df_mark = _read_zip_csv(p("markPriceKlines_1m"), names=idx_cols, usecols=[0, 4])
@@ -95,6 +125,7 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             df_mark["ts"] = pd.to_numeric(df_mark["ts"], errors="coerce")
             df_mark["perp_mark"] = pd.to_numeric(df_mark["perp_mark"], errors="coerce")
             df_mark = df_mark.dropna(subset=["ts"])  # drop header if present
+        logger.debug(f"read mark df rows={len(df_mark)} date={date_str}")
 
         # premiumIndexKlines (1m): use close as premium proxy
         df_prem = _read_zip_csv(p("premiumIndexKlines_1m"), names=idx_cols, usecols=[0, 4])
@@ -103,6 +134,7 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             df_prem["ts"] = pd.to_numeric(df_prem["ts"], errors="coerce")
             df_prem["premium"] = pd.to_numeric(df_prem["premium"], errors="coerce")
             df_prem = df_prem.dropna(subset=["ts"])  # drop header if present
+        logger.debug(f"read premium df rows={len(df_prem)} date={date_str}")
 
         # aggTrades: [id, price, qty, firstId, lastId, timestamp, isBuyerMaker]
         at_cols = [
@@ -114,11 +146,12 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             "ts",
             "isBuyerMaker",
         ]
-        df_at = _read_zip_csv(p("aggTrades"), names=at_cols)
+        # Only read the needed columns to reduce memory footprint
+        df_at = _read_zip_csv(p("aggTrades"), names=["qty", "ts", "isBuyerMaker"], usecols=[2, 5, 6])
         if not df_at.empty:
             # Coerce types and drop header rows accidentally read as data
             df_at["qty"] = pd.to_numeric(df_at["qty"], errors="coerce")  # base qty
-            df_at["ts"] = pd.to_numeric(df_at["ts"], errors="coerce")
+            df_at["ts"] = _normalize_ts_ms(df_at["ts"], context="perp_aggTrades")
             df_at["isBuyerMaker"] = pd.to_numeric(df_at["isBuyerMaker"], errors="coerce")
             df_at = df_at.dropna(subset=["qty", "ts", "isBuyerMaker"])  # drop header line if present
             df_at["isBuyerMaker"] = df_at["isBuyerMaker"].astype(int)
@@ -137,6 +170,7 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             )
         else:
             df_cvd = pd.DataFrame()
+        logger.debug(f"read aggTrades rows={len(df_at)} cvd_index_len={len(df_cvd.index) if not df_cvd.empty else 0} date={date_str}")
 
         # bookTicker: [ts, symbol, bidPrice, bidQty, askPrice, askQty] (schema may vary)
         bt_cols_variants = [
@@ -149,11 +183,12 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             with zipfile.ZipFile(bt_zip, "r") as zf:
                 fname = zf.namelist()[0]
                 with zf.open(fname) as f:
-                    raw = f.read()
+                    raw_bytes = f.read()
                 for cols in bt_cols_variants:
                     try:
-                        tmp = pd.read_csv(io.BytesIO(raw), header=None, names=cols, low_memory=False)
+                        tmp = pd.read_csv(io.BytesIO(raw_bytes), header=None, names=cols, low_memory=False)
                         df_bt = tmp
+                        logger.debug(f"read bookTicker variant={cols} rows={len(df_bt)} date={date_str}")
                         break
                     except Exception:
                         continue
@@ -161,9 +196,9 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             for c in ["bidPrice", "askPrice"]:
                 df_bt[c] = _safe_float(df_bt[c])
             if "ts" in df_bt.columns:
-                df_bt["ts"] = pd.to_numeric(df_bt["ts"], errors="coerce")
+                df_bt["ts"] = _normalize_ts_ms(df_bt["ts"], context="bookTicker")
                 df_bt = df_bt.dropna(subset=["ts"])  # drop header if present
-                df_bt["minute"] = _to_minute_index(df_bt["ts"])
+                df_bt.loc[:, "minute"] = _to_minute_index(df_bt["ts"]).astype("datetime64[ns, UTC]")
                 df_bt = df_bt.sort_values("minute").groupby("minute").last()
             mid = (df_bt["bidPrice"] + df_bt["askPrice"]) / 2.0
             spread_bps = (df_bt["askPrice"] - df_bt["bidPrice"]) / mid * 10000.0
@@ -172,24 +207,32 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             })
         else:
             df_liq = pd.DataFrame()
+        logger.debug(f"bookTicker df rows={len(df_bt)} liq_rows={len(df_liq)} date={date_str}")
 
         # spot aggTrades (optional)
         df_spot = pd.DataFrame()
         if include_spot and p("spot_aggTrades").exists():
-            df_s = _read_zip_csv(p("spot_aggTrades"), names=at_cols)
+            # Minimize columns for spot aggTrades as well
+            df_s = _read_zip_csv(p("spot_aggTrades"), names=["qty", "ts", "isBuyerMaker"], usecols=[2, 5, 6])
             if not df_s.empty:
                 df_s["qty"] = pd.to_numeric(df_s["qty"], errors="coerce")
-                df_s["ts"] = pd.to_numeric(df_s["ts"], errors="coerce")
+                df_s["ts"] = _normalize_ts_ms(df_s["ts"], context="spot_aggTrades")
                 df_s["isBuyerMaker"] = pd.to_numeric(df_s["isBuyerMaker"], errors="coerce")
                 df_s = df_s.dropna(subset=["qty", "ts", "isBuyerMaker"])  # drop header rows
                 df_s["isBuyerMaker"] = df_s["isBuyerMaker"].astype(int)
-                df_s["minute"] = _to_minute_index(df_s["ts"]).astype("datetime64[ns, UTC]")
-                grp = df_s.groupby("minute")
-                df_spot = pd.DataFrame({
-                    "taker_buy_qty_spot": grp.apply(lambda g: g.loc[g["isBuyerMaker"] == 0, "qty"].sum()),
-                    "taker_sell_qty_spot": grp.apply(lambda g: g.loc[g["isBuyerMaker"] == 1, "qty"].sum()),
-                    "vol_spot": grp["qty"].sum(),
-                })
+                df_s.loc[:, "minute"] = _to_minute_index(df_s["ts"]).astype("datetime64[ns, UTC]")
+                # Vectorized groupby aggregation (faster than groupby.apply)
+                buy_s = df_s.loc[df_s["isBuyerMaker"] == 0].groupby("minute")["qty"].sum()
+                sell_s = df_s.loc[df_s["isBuyerMaker"] == 1].groupby("minute")["qty"].sum()
+                vol_s = df_s.groupby("minute")["qty"].sum()
+                df_spot = pd.concat(
+                    [
+                        buy_s.rename("taker_buy_qty_spot"),
+                        sell_s.rename("taker_sell_qty_spot"),
+                        vol_s.rename("vol_spot"),
+                    ],
+                    axis=1,
+                )
 
         # Merge all by minute index
         if not df_index.empty:
@@ -208,7 +251,7 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             df_prem.drop(columns=["ts"], inplace=True)
             df_prem.set_index("minute", inplace=True)
 
-        df_day = pd.DataFrame(index=pd.date_range(dt, dt + pd.Timedelta(days=1) - pd.Timedelta(minutes=1), freq="T", tz="UTC"))
+        df_day = pd.DataFrame(index=pd.date_range(dt, dt + pd.Timedelta(days=1) - pd.Timedelta(minutes=1), freq="min", tz="UTC"))
         if not df_index.empty:
             df_day = df_day.join(df_index[["index_px"]], how="left")
         if not df_mark.empty:
@@ -221,13 +264,14 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             df_day = df_day.join(df_liq, how="left")
         if not df_spot.empty:
             df_day = df_day.join(df_spot, how="left")
-
+        logger.debug(f"df_day date={date_str} shape={df_day.shape} cols={list(df_day.columns)}")
         frames.append(df_day)
 
     if not frames:
         return pd.DataFrame()
 
     df = pd.concat(frames).sort_index()
+    logger.debug(f"concat frames total_shape={df.shape}")
     # forward fill prices for continuous series
     for c in ["index_px", "perp_mark", "premium"]:
         if c in df.columns:
@@ -238,7 +282,9 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
     valid_price = df[[c for c in ["index_px", "perp_mark"] if c in df.columns]].notna().any(axis=1)
     last_ts = df.index.to_series().where(valid_price).ffill()
     staleness = (df.index.to_series() - last_ts).dt.total_seconds() / 60.0
+    stale_cnt = int((staleness > 2).sum())
     df.loc[staleness > 2, "data_ok"] = False
+    logger.debug(f"final symbol={symbol} shape={df.shape} stale_minutes={stale_cnt}")
 
     return df
 
