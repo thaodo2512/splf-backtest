@@ -17,3 +17,5 @@ outputs/
 *.csv
 *.zip
 *.log
+debug.log
+debug

@@ -48,3 +48,7 @@ backtest:
 runtime:
   workers: 4
   force: false
+
+# Model settings
+model:
+  backend: auto   # auto | sklearn | cuml (GPU)

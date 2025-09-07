@@ -17,6 +17,7 @@ class BacktestConfig:
     prealert_consecutive_mins: int = 2
     confirm_bars_5m: int = 1
     mask_funding_minutes: int = 10
+    model_backend: str = "auto"  # 'auto' | 'sklearn' | 'cuml'
 
 
 def rolling_windows(df_5m: pd.DataFrame, cfg: BacktestConfig):
@@ -79,7 +80,7 @@ def derive_leader_state(row: pd.Series) -> str:
 
 def run_walk_forward(df_1m: pd.DataFrame, df_5m: pd.DataFrame, symbol: str, cfg: BacktestConfig) -> pd.DataFrame:
     # Fit on 5m bars, score 5m bars, then propagate to 1m grid
-    model = IFModel()
+    model = IFModel(backend=cfg.model_backend)
     scores_5m = []
     train_hist_scores = []
     for train, score in rolling_windows(df_5m, cfg):
@@ -132,4 +133,3 @@ def run_walk_forward(df_1m: pd.DataFrame, df_5m: pd.DataFrame, symbol: str, cfg:
     alerts["ts"] = alerts.index
     alerts = alerts.reset_index(drop=True)
     return alerts
-

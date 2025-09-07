@@ -33,7 +33,7 @@ def _read_zip_csv(path: os.PathLike | str, names: Optional[List[str]] = None, dt
 
 
 def _to_minute_index(ts_ms: pd.Series) -> pd.DatetimeIndex:
-    return pd.to_datetime(ts_ms, unit="ms", utc=True).dt.floor("T")
+    return pd.to_datetime(ts_ms, unit="ms", utc=True).dt.floor("min")
 
 
 def _safe_float(s: pd.Series) -> pd.Series:
@@ -82,15 +82,27 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             "v6",
         ]
         df_index = _read_zip_csv(p("indexPriceKlines_1m"), names=idx_cols, usecols=[0, 4])
-        df_index.rename(columns={"open_time": "ts", "close": "index_px"}, inplace=True)
+        if not df_index.empty:
+            df_index.rename(columns={"open_time": "ts", "close": "index_px"}, inplace=True)
+            df_index["ts"] = pd.to_numeric(df_index["ts"], errors="coerce")
+            df_index["index_px"] = pd.to_numeric(df_index["index_px"], errors="coerce")
+            df_index = df_index.dropna(subset=["ts"])  # drop header if present
 
         # mark price klines (1m)
         df_mark = _read_zip_csv(p("markPriceKlines_1m"), names=idx_cols, usecols=[0, 4])
-        df_mark.rename(columns={"open_time": "ts", "close": "perp_mark"}, inplace=True)
+        if not df_mark.empty:
+            df_mark.rename(columns={"open_time": "ts", "close": "perp_mark"}, inplace=True)
+            df_mark["ts"] = pd.to_numeric(df_mark["ts"], errors="coerce")
+            df_mark["perp_mark"] = pd.to_numeric(df_mark["perp_mark"], errors="coerce")
+            df_mark = df_mark.dropna(subset=["ts"])  # drop header if present
 
         # premiumIndexKlines (1m): use close as premium proxy
         df_prem = _read_zip_csv(p("premiumIndexKlines_1m"), names=idx_cols, usecols=[0, 4])
-        df_prem.rename(columns={"open_time": "ts", "close": "premium"}, inplace=True)
+        if not df_prem.empty:
+            df_prem.rename(columns={"open_time": "ts", "close": "premium"}, inplace=True)
+            df_prem["ts"] = pd.to_numeric(df_prem["ts"], errors="coerce")
+            df_prem["premium"] = pd.to_numeric(df_prem["premium"], errors="coerce")
+            df_prem = df_prem.dropna(subset=["ts"])  # drop header if present
 
         # aggTrades: [id, price, qty, firstId, lastId, timestamp, isBuyerMaker]
         at_cols = [
@@ -110,15 +122,19 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             df_at["isBuyerMaker"] = pd.to_numeric(df_at["isBuyerMaker"], errors="coerce")
             df_at = df_at.dropna(subset=["qty", "ts", "isBuyerMaker"])  # drop header line if present
             df_at["isBuyerMaker"] = df_at["isBuyerMaker"].astype(int)
-            df_at["minute"] = _to_minute_index(df_at["ts"])
-            grp = df_at.groupby("minute")
-            taker_sell_qty = grp.apply(lambda g: g.loc[g["isBuyerMaker"] == 1, "qty"].sum())
-            taker_buy_qty = grp.apply(lambda g: g.loc[g["isBuyerMaker"] == 0, "qty"].sum())
-            df_cvd = pd.DataFrame({
-                "taker_buy_qty": taker_buy_qty,
-                "taker_sell_qty": taker_sell_qty,
-                "vol_perp": grp["qty"].sum(),
-            })
+            df_at["minute"] = _to_minute_index(df_at["ts"]).astype("datetime64[ns, UTC]")
+            # Aggregate without groupby.apply to avoid shape issues
+            sell = df_at.loc[df_at["isBuyerMaker"] == 1].groupby("minute")["qty"].sum()
+            buy = df_at.loc[df_at["isBuyerMaker"] == 0].groupby("minute")["qty"].sum()
+            vol = df_at.groupby("minute")["qty"].sum()
+            df_cvd = pd.concat(
+                [
+                    buy.rename("taker_buy_qty"),
+                    sell.rename("taker_sell_qty"),
+                    vol.rename("vol_perp"),
+                ],
+                axis=1,
+            )
         else:
             df_cvd = pd.DataFrame()
 
@@ -176,11 +192,21 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
                 })
 
         # Merge all by minute index
-        for d in (df_index, df_mark, df_prem):
-            if not d.empty:
-                d["minute"] = _to_minute_index(d["ts"]).astype("datetime64[ns, UTC]")
-                d.drop(columns=["ts"], inplace=True)
-                d.set_index("minute", inplace=True)
+        if not df_index.empty:
+            df_index = df_index.copy()
+            df_index["minute"] = _to_minute_index(df_index["ts"]).astype("datetime64[ns, UTC]")
+            df_index.drop(columns=["ts"], inplace=True)
+            df_index.set_index("minute", inplace=True)
+        if not df_mark.empty:
+            df_mark = df_mark.copy()
+            df_mark["minute"] = _to_minute_index(df_mark["ts"]).astype("datetime64[ns, UTC]")
+            df_mark.drop(columns=["ts"], inplace=True)
+            df_mark.set_index("minute", inplace=True)
+        if not df_prem.empty:
+            df_prem = df_prem.copy()
+            df_prem["minute"] = _to_minute_index(df_prem["ts"]).astype("datetime64[ns, UTC]")
+            df_prem.drop(columns=["ts"], inplace=True)
+            df_prem.set_index("minute", inplace=True)
 
         df_day = pd.DataFrame(index=pd.date_range(dt, dt + pd.Timedelta(days=1) - pd.Timedelta(minutes=1), freq="T", tz="UTC"))
         if not df_index.empty:
@@ -209,9 +235,10 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
 
     df["data_ok"] = True
     # mark data_ok false if last price stale > 2 minutes
-    staleness = (df.index.to_series() - df[["index_px", "perp_mark"]].notna().apply(lambda s: df.index.to_series().where(s).ffill())).dt.total_seconds() / 60.0
-    if not staleness.empty:
-        df.loc[staleness > 2, "data_ok"] = False
+    valid_price = df[[c for c in ["index_px", "perp_mark"] if c in df.columns]].notna().any(axis=1)
+    last_ts = df.index.to_series().where(valid_price).ffill()
+    staleness = (df.index.to_series() - last_ts).dt.total_seconds() / 60.0
+    df.loc[staleness > 2, "data_ok"] = False
 
     return df
 

@@ -105,6 +105,7 @@ class SPLFNotebook:
             prealert_consecutive_mins=int(cfgbt.get("prealert_consecutive_mins", 2)),
             confirm_bars_5m=int(cfgbt.get("confirm_bars_5m", 1)),
             mask_funding_minutes=int(cfgbt.get("mask_funding_minutes", 10)),
+            model_backend=self.cfg.get("model", {}).get("backend", "auto"),
         )
         outputs: Dict[str, pd.DataFrame] = {}
         out_dir = ensure_dir(Path(self.paths["artifacts_dir"]) / "alerts")
@@ -148,4 +149,3 @@ class SPLFNotebook:
         out_dir = ensure_dir(Path(self.paths["artifacts_dir"]) / "metrics")
         save_json(out_dir / "metrics.json", metrics)
         return metrics, outcomes_df
-
