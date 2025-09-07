@@ -59,6 +59,25 @@ The E2E runner loads `.env` (if present) and executes all stages with logging to
     bash scripts/run_e2e.sh config/config.yaml
 
     python scripts/analyze_results.py --config config/config.yaml
+    
+Plot Results
+------------
+After analysis, generate summary plots and symbol visualizations.
+
+1) Metrics bars (precision/recall/F1 by horizon) and a symbol overview chart
+
+    python scripts/plot_results.py --config config/config.yaml --symbol BTCUSDT
+
+   Outputs:
+   - artifacts/plots/metrics_bars.png
+   - artifacts/plots/BTCUSDT_overview.png
+
+2) Minute-bar visualization (prices, basis, spread, CVD) for a chosen window
+
+    python scripts/visualize_minute_bar.py --config config/config.yaml --symbol BTCUSDT --start 2025-06-01 --end 2025-06-07 --show
+
+   Outputs:
+   - artifacts/plots/BTCUSDT_minute.png (also displays interactively with --show)
 
 Artifacts
 ---------
@@ -144,7 +163,27 @@ Build a portable multi-arch image (amd64/arm64) and run either the CLI or Jupyte
       splf-backtest:latest \
       bash scripts/run_e2e.sh config/config.yaml
 
-3) Run Jupyter Lab
+3) Plot results inside the container
+
+   Metrics bars and symbol overview (assumes artifacts exist from E2E run):
+
+    docker run --rm -it \
+      -v "$(pwd)":/app \
+      -w /app \
+      splf-backtest:latest \
+      python scripts/plot_results.py --config config/config.yaml --symbol BTCUSDT
+
+   Minute-bar visualization (optionally restrict time range):
+
+    docker run --rm -it \
+      -v "$(pwd)":/app \
+      -w /app \
+      splf-backtest:latest \
+      python scripts/visualize_minute_bar.py --config config/config.yaml --symbol BTCUSDT --start 2025-06-01 --end 2025-06-07
+
+   Outputs will be written under artifacts/plots on the host (since the repo is mounted).
+
+4) Run Jupyter Lab
 
     docker-compose up
 

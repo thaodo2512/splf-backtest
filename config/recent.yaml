@@ -11,7 +11,7 @@ universe:
   tier_a: ["SOLUSDT"]
   tier_b: []
   tier_c: []
-  symbols: ["SOLUSDT"]
+  symbols: ["ETHUSDT", "BNBUSDT", "BTCUSDT"]
 
 # Adjust these dates as needed (last ~30 days)
 period:
