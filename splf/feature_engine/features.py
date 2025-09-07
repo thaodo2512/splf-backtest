@@ -34,11 +34,18 @@ def compute_features_1m(df_minute: pd.DataFrame, symbol: str, config: Dict) -> p
     for w in config.get("features", {}).get("basis_twap_minutes", [60, 120]):
         df[f"basis_TWAP_{w}m"] = df["basis_now"].rolling(f"{w}T", min_periods=max(2, w)).mean()
 
+    # Basis momentum (per spec): change vs 5m/15m ago on 1-minute grid
+    df["dbasis_5m"] = df["basis_now"] - df["basis_now"].shift(5)
+    df["dbasis_15m"] = df["basis_now"] - df["basis_now"].shift(15)
+
     # Premium as funding proxy
     if "premium" in df.columns:
         for w in [60, 120, 480]:
             df[f"premium_TWAP_{w}m"] = df["premium"].rolling(f"{w}T", min_periods=max(2, w)).mean()
-        df["basis_minus_fundTWAP"] = df["basis_now"] - df["premium_TWAP_480m"].fillna(df["premium_TWAP_120m"])
+        # Perp impulse ≈ basis_now − funding_TWAP_proxy (use premium TWAP as proxy)
+        df["perp_impulse"] = df["basis_now"] - df["premium_TWAP_120m"].fillna(df["premium_TWAP_60m"]).fillna(df.get("premium_TWAP_480m"))
+        # Backward-compatible alias
+        df["basis_minus_fundTWAP"] = df["perp_impulse"]
     else:
         df["basis_minus_fundTWAP"] = np.nan
 
@@ -79,6 +86,22 @@ def compute_features_1m(df_minute: pd.DataFrame, symbol: str, config: Dict) -> p
 
     df["rv_15m"] = ret1m.rolling("15T", min_periods=5).std()
 
+    # Funding-derived features (if available via ingestion)
+    if "funding_now" in df.columns:
+        for w in [30, 60, 90]:
+            df[f"funding_slope_{w}m"] = df["funding_now"] - df["funding_now"].shift(w)
+        # funding percentile over 30d history is expensive; approximate with rolling z-score proxy if needed later
+
+    # OI-derived features (if available)
+    if "oi" in df.columns:
+        df["doi_1h"] = df["oi"] - df["oi"].shift(60)
+        df["doi_4h"] = df["oi"] - df["oi"].shift(240)
+
+    # Liquidations (if available in minute aggregation)
+    for c in ["liq_long", "liq_short", "liq_count"]:
+        if c in df.columns:
+            df[f"{c}_15m"] = df[c].rolling("15T", min_periods=1).sum()
+
     # Meta flags
     if {"perp_mark", "index_px"}.issubset(df.columns):
         df["index_deviation_flag"] = ((df["perp_mark"] - df["index_px"]).abs() / df["index_px"]).fillna(0) > 0.005
@@ -107,4 +130,3 @@ def save_features_parquet(df: pd.DataFrame, features_dir: os.PathLike | str, sym
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out)
     return out
-

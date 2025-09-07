@@ -27,19 +27,23 @@ Quick Start
 
     python scripts/download_data.py --config config/config.yaml
 
-4) Build minute bars
+4) (Optional) Enrich with Binance REST (funding, OI, liquidations)
+
+    python scripts/ingest_binance.py --config config/config.yaml
+
+5) Build minute bars
 
     python scripts/build_minute_bars.py --config config/config.yaml
 
-5) Compute features
+6) Compute features
 
     python scripts/compute_features.py --config config/config.yaml
 
-6) Run backtest
+7) Run backtest
 
     python scripts/run_backtest.py --config config/config.yaml
 
-7) Analyze results
+8) Analyze results
 
     python scripts/analyze_results.py --config config/config.yaml
 

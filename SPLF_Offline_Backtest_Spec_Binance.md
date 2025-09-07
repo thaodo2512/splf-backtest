@@ -44,6 +44,13 @@
 - **Open Interest (OI):** Not fully available as daily CSV in the archive. For a purely offline backtest, **omit OI features** or restrict OI usage to periods where you supplement via REST (short backrange).  
 - **Liquidations:** Archive coverage is inconsistent; treat as **optional**. Backtest remains valid without it.
 
+### 2a) Optional REST Enrichment (Binance-only backtests)
+To approximate live features while staying Binance‑only, the project supports an optional REST ingestion step for historically backfillable series:
+- **Funding (8h points → 1m ffill):** `funding_now`, `funding_slope_30/60/90m`.
+- **Open Interest (5m series → 1m ffill):** `oi`, `doi_1h/4h`.
+- **Liquidations (events → 1m/15m aggregates):** `liq_long_15m`, `liq_short_15m`, `liq_count_15m`.
+Depth bands (±0.5%/±1%) are live‑oriented and excluded from offline backtests.
+
 ---
 
 ## 3) Pre-Processing & Normalization
@@ -136,11 +143,12 @@ Mirrors live SPLF; **omit OI/Liquidations** if unavailable.
 ## 8) Implementation Plan
 1. **Downloader** — symbol/date planner; parallel downloads; checksum verify; retry/backoff.  
 2. **Parsers** — CSV→Parquet; column typing; NaN-safe arithmetic; microsecond handling (spot).  
-3. **Minute builder** — align mark/index/premium/aggTrades/bookTicker/depth; minute buckets.  
-4. **Feature engine** — build 5-minute rolling features refreshed per 1-minute step.  
-5. **Model runner (walk-forward)** — rolling fit → score → thresholding (Pre-Alert/Storm); persistence & masks.  
-6. **Labeler & scorer** — outcome labels; metrics; per-tier aggregation; confidence intervals (bootstrap).  
-7. **Artifacts** — Parquet features; alert logs; metrics JSON; plots (PR curves, lead-time).
+3. **(Optional) REST ingestion** — fundingRate, openInterestHist, allForceOrders → Parquet per symbol; join as 1m series (ffill).  
+4. **Minute builder** — align mark/index/premium/aggTrades/bookTicker (+ join funding/OI/liqs); 1m buckets.  
+5. **Feature engine** — build 5-minute rolling features refreshed per 1-minute step (adds funding slopes, ΔOI, liq_15m if present).  
+6. **Model runner (walk-forward)** — rolling fit → score → thresholding (Pre-Alert/Storm); persistence & masks.  
+7. **Labeler & scorer** — outcome labels; metrics; per-tier aggregation; confidence intervals (bootstrap).  
+8. **Artifacts** — Parquet features; alert logs; metrics JSON; plots (PR curves, lead-time).
 
 ---
 

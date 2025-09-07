@@ -19,9 +19,11 @@ except Exception:  # pragma: no cover
 FEATURE_COLUMNS_DEFAULT = [
     # price/basis
     "basis_now",
+    "dbasis_5m",
+    "dbasis_15m",
     "basis_TWAP_60m",
     "basis_TWAP_120m",
-    "basis_minus_fundTWAP",
+    "perp_impulse",
     # flow
     "cvd_perp_5m",
     "cvd_perp_15m",

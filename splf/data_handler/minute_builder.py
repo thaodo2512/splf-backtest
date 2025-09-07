@@ -64,7 +64,26 @@ def _normalize_ts_ms(ts: pd.Series, context: str = "") -> pd.Series:
     return s
 
 
-def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end: str, include_spot: bool = False) -> pd.DataFrame:
+def _to_int01_isbuyer(s: pd.Series) -> pd.Series:
+    """Robustly convert isBuyerMaker to {0,1} from mixed types (bool/int/str)."""
+    out = pd.to_numeric(s, errors="coerce")
+    mask = out.isna()
+    if mask.any():
+        st = s.astype(str).str.strip().str.lower()
+        mapd = st.map({"true": 1, "false": 0, "1": 1, "0": 0})
+        out = out.where(~mask, mapd)
+    return pd.to_numeric(out, errors="coerce")
+
+
+def build_minute_frame(
+    raw_dir: os.PathLike | str,
+    symbol: str,
+    start: str,
+    end: str,
+    include_spot: bool = False,
+    progress: bool = False,
+    ingest_dir: Optional[str] = None,
+) -> pd.DataFrame:
     """
     Build a unified 1-minute DataFrame from daily zip files between start and end.
     Columns: index_px, perp_mark, premium, bid, ask, spread_bps, taker_buy_qty, taker_sell_qty, vol_perp, vol_spot (opt)
@@ -72,11 +91,19 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
     logger = logging.getLogger(__name__)
     raw = Path(raw_dir) / symbol
     logger.debug(f"minute_builder.start symbol={symbol} raw_dir={raw} start={start} end={end} include_spot={include_spot}")
+    ingest_base = Path(ingest_dir) if ingest_dir else Path("data/ingest-binance")
 
     # aggregate per day then concat
     frames: List[pd.DataFrame] = []
     date_range = pd.date_range(start=start, end=end, freq="D", tz="UTC")
-    for dt in date_range:
+    iterator = date_range
+    if progress:
+        try:
+            from tqdm.auto import tqdm  # type: ignore
+            iterator = tqdm(date_range, desc=f"{symbol} days", leave=True)
+        except Exception:
+            iterator = date_range
+    for dt in iterator:
         date_str = dt.strftime("%Y-%m-%d")
 
         def p(ds: str) -> Path:
@@ -152,7 +179,7 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             # Coerce types and drop header rows accidentally read as data
             df_at["qty"] = pd.to_numeric(df_at["qty"], errors="coerce")  # base qty
             df_at["ts"] = _normalize_ts_ms(df_at["ts"], context="perp_aggTrades")
-            df_at["isBuyerMaker"] = pd.to_numeric(df_at["isBuyerMaker"], errors="coerce")
+            df_at["isBuyerMaker"] = _to_int01_isbuyer(df_at["isBuyerMaker"])  # 1=sell (buyer is maker)
             df_at = df_at.dropna(subset=["qty", "ts", "isBuyerMaker"])  # drop header line if present
             df_at["isBuyerMaker"] = df_at["isBuyerMaker"].astype(int)
             df_at["minute"] = _to_minute_index(df_at["ts"]).astype("datetime64[ns, UTC]")
@@ -217,7 +244,7 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
             if not df_s.empty:
                 df_s["qty"] = pd.to_numeric(df_s["qty"], errors="coerce")
                 df_s["ts"] = _normalize_ts_ms(df_s["ts"], context="spot_aggTrades")
-                df_s["isBuyerMaker"] = pd.to_numeric(df_s["isBuyerMaker"], errors="coerce")
+                df_s["isBuyerMaker"] = _to_int01_isbuyer(df_s["isBuyerMaker"])  # 1=sell (buyer is maker)
                 df_s = df_s.dropna(subset=["qty", "ts", "isBuyerMaker"])  # drop header rows
                 df_s["isBuyerMaker"] = df_s["isBuyerMaker"].astype(int)
                 df_s.loc[:, "minute"] = _to_minute_index(df_s["ts"]).astype("datetime64[ns, UTC]")
@@ -285,6 +312,29 @@ def build_minute_frame(raw_dir: os.PathLike | str, symbol: str, start: str, end:
     stale_cnt = int((staleness > 2).sum())
     df.loc[staleness > 2, "data_ok"] = False
     logger.debug(f"final symbol={symbol} shape={df.shape} stale_minutes={stale_cnt}")
+
+    # Enrich from Binance REST ingestion if available
+    try:
+        ing_sym_dir = ingest_base / symbol
+        if (ing_sym_dir / "funding.parquet").exists():
+            f = pd.read_parquet(ing_sym_dir / "funding.parquet").sort_index()
+            f1m = f.reindex(df.index, method="ffill").rename(columns={"funding_now": "funding_now"})
+            df = df.join(f1m[["funding_now"]], how="left")
+        if (ing_sym_dir / "oi.parquet").exists():
+            oi = pd.read_parquet(ing_sym_dir / "oi.parquet").sort_index()
+            oi1m = oi.reindex(df.index, method="ffill").rename(columns={"oi": "oi"})
+            df = df.join(oi1m[["oi"]], how="left")
+        if (ing_sym_dir / "liquidations.parquet").exists():
+            liq = pd.read_parquet(ing_sym_dir / "liquidations.parquet").sort_index()
+            grp = liq.groupby(pd.Grouper(freq="1T"))
+            liq_min = pd.DataFrame({
+                "liq_long": grp.apply(lambda g: g.loc[g.get("side", "BUY").str.upper() == "BUY", "qty"].sum()),
+                "liq_short": grp.apply(lambda g: g.loc[g.get("side", "SELL").str.upper() == "SELL", "qty"].sum()),
+                "liq_count": grp.size(),
+            })
+            df = df.join(liq_min, how="left")
+    except Exception as e:
+        logger.exception(f"ingest_enrich_failed symbol={symbol} error={e}")
 
     return df
 

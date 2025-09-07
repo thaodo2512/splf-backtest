@@ -35,7 +35,12 @@ def _build_one(sym: str, paths: dict, period: dict, include_spot: bool, spot_for
             f"build_start symbol={sym} raw_dir={paths.get('raw_dir')} start={period.get('start')} end={period.get('end')} include_spot={include_spot and (sym in spot_for)}"
         )
         df = build_minute_frame(
-            paths["raw_dir"], sym, period["start"], period["end"], include_spot=include_spot and (sym in spot_for)
+            paths["raw_dir"],
+            sym,
+            period["start"],
+            period["end"],
+            include_spot=include_spot and (sym in spot_for),
+            ingest_dir=paths.get("ingest_dir"),
         )
         if df.empty:
             logger.warning(f"no_data symbol={sym}")

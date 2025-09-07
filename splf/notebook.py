@@ -65,8 +65,15 @@ class SPLFNotebook:
         include_spot = self.cfg.get("datasets", {}).get("spot_aggTrades", False)
         spot_for = set(self.cfg.get("features", {}).get("spot_for", []))
         outputs: Dict[str, Union[Path, pd.DataFrame]] = {}
-        for sym in tqdm(sym_list, desc="Minute bars"):
-            df = build_minute_frame(self.paths["raw_dir"], sym, period["start"], period["end"], include_spot=include_spot and (sym in spot_for))
+        for sym in tqdm(sym_list, desc="Minute bars (symbols)"):
+            df = build_minute_frame(
+                self.paths["raw_dir"],
+                sym,
+                period["start"],
+                period["end"],
+                include_spot=include_spot and (sym in spot_for),
+                progress=True,
+            )
             if df.empty:
                 outputs[sym] = pd.DataFrame()
                 continue

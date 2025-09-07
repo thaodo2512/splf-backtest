@@ -4,16 +4,17 @@ paths:
   processed_dir: data/processed
   features_dir: data/features
   artifacts_dir: artifacts
+  ingest_dir: data/ingest-binance
 
 # Universe and period
 universe:
-  tier_a: ["BTCUSDT"]
+  tier_a: ["ETHUSDT"]
   tier_b: []
   tier_c: []
-  symbols: ["BTCUSDT"]  # explicit override if set (non-empty)
+  symbols: ["ETHUSDT"]  # explicit override if set (non-empty)
 period:
   start: "2025-06-01"
-  end: "2025-06-04"
+  end: "2025-06-30"
 
 # Download datasets toggle
 datasets:
@@ -26,21 +27,39 @@ datasets:
   fundingRate_monthly: true
   spot_aggTrades: true
 
+# Online ingestion (Binance REST; enrich backtests with funding, OI, liquidations)
+ingest:
+  binance_rest: true
+  funding: true
+  open_interest: true
+  liquidations: true
+  depth_bands: false  # depth ±bands are live-only and not reliably backfillable
+
 # Feature settings
+# Computed features (spec-aligned, auto-excluded if inputs missing):
+# - basis_now; dbasis_5m; dbasis_15m
+# - basis_TWAP_{60,120}m (from basis_twap_minutes)
+# - premium_TWAP_{60,120,480}m (fixed), perp_impulse ≈ basis_now − funding_TWAP_proxy
+# - cvd_perp_{5,15}m; cvd_spot_{5,15}m (requires datasets.spot_aggTrades & symbol in spot_for)
+# - perp_share_60m; dperp_share_60m; spread_bps; rv_15m; data_ok; index_deviation_flag
 features:
+  # Note: rv_15m is currently fixed in code; rv_window_min is reserved for future use
   rv_window_min: 15
+  # TWAP windows for basis smoothing
   basis_twap_minutes: [60, 120]
+  # Windows (minutes) for CVD rollups
   cvd_windows_min: [5, 15]
-  spot_for: ["BTCUSDT"]
+  # Symbols for which to compute spot CVD/volume share (requires datasets.spot_aggTrades)
+  spot_for: ["ETHUSDT"]
 
 # Backtest settings
 backtest:
   resample_5m: true
-  train_window_days: 30
-  retrain_every_hours: 8
-  score_qtile: 0.98
-  prealert_consecutive_mins: 2
-  confirm_bars_5m: 1
+  train_window_days: 14
+  retrain_every_hours: 4
+  score_qtile: 0.97
+  prealert_consecutive_mins: 1
+  confirm_bars_5m: 0 # 0 means immediate confirm after the pre‑alert
   mask_funding_minutes: 10
   horizons_min: [30, 60, 90, 120]
 
