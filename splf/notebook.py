@@ -73,6 +73,7 @@ class SPLFNotebook:
                 period["end"],
                 include_spot=include_spot and (sym in spot_for),
                 progress=True,
+                ingest_dir=self.paths.get("ingest_dir"),
             )
             if df.empty:
                 outputs[sym] = pd.DataFrame()

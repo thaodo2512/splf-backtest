@@ -6,6 +6,7 @@ This repository implements an offline backtesting pipeline for the SPLF (StormCo
 Pipeline
 --------
 - Data download (Binance Vision daily dumps)
+- (Optional) REST ingestion (Binance or Coinalyze) for funding/OI/liquidations
 - 1-minute resampling & alignment
 - Feature engineering (5m features refreshed every 1m)
 - Walk-forward Isolation Forest backtest with persistence
@@ -31,19 +32,31 @@ Quick Start
 
     python scripts/ingest_binance.py --config config/config.yaml
 
-5) Build minute bars
+5) (Optional) Enrich with Coinalyze API (OI, funding, liquidations)
+
+    # Put your key into .env: COINALYZE_API_KEY=xxxx
+    python scripts/ingest_coinalyze.py --config config/config.yaml
+
+6) Build minute bars
 
     python scripts/build_minute_bars.py --config config/config.yaml
 
-6) Compute features
+7) Compute features
 
     python scripts/compute_features.py --config config/config.yaml
 
-7) Run backtest
+8) Run backtest
 
     python scripts/run_backtest.py --config config/config.yaml
 
-8) Analyze results
+9) Analyze results
+
+One-Command E2E
+---------------
+The E2E runner loads `.env` (if present) and executes all stages with logging to `debug.log`.
+
+    # .env should include COINALYZE_API_KEY if you use Coinalyze
+    bash scripts/run_e2e.sh config/config.yaml
 
     python scripts/analyze_results.py --config config/config.yaml
 
@@ -52,12 +65,15 @@ Artifacts
 - data/raw/{SYMBOL}/...             Raw zip files
 - data/processed/{SYMBOL}/minute.parquet
 - data/features/{SYMBOL}/features_5m.parquet
+ - data/ingest-binance/{SYMBOL}/oi*.parquet | funding*.parquet | *liquidation*.parquet
 - artifacts/alerts/{SYMBOL}.csv
 - artifacts/metrics/metrics.json
 
 Notes
 -----
-- Open Interest and Liquidations are optional and not required for the core backtest.
+- Open Interest and Liquidations are optional; if present (from Binance or Coinalyze) the pipeline auto‑derives related features (doi_*, liq_*_15m).
+- Coinalyze API: 40 calls/min; honor Retry‑After on 429. 1m intraday retains ~1500–2000 points (~1–1.4 days). Use 1d interval for long backtests.
+- The E2E runner loads `.env` (secrets) and prints detailed debug to `debug.log`.
 - This pipeline is optimized for research and can be driven from scripts or notebooks.
 
 Notebook Usage
@@ -111,3 +127,29 @@ Run notebooks with your conda env and a registered kernel.
 5) If you see a Parquet engine error in pandas, install one in the active kernel:
 
     %pip install pyarrow fastparquet
+
+Container Usage
+---------------
+Build a portable multi-arch image (amd64/arm64) and run either the CLI or Jupyter.
+
+1) Build
+
+    docker build -t splf-backtest:latest .
+
+2) Run CLI (mount repo to persist outputs)
+
+    docker run --rm -it \
+      -v "$(pwd)":/app \
+      -w /app \
+      splf-backtest:latest \
+      bash scripts/run_e2e.sh config/config.yaml
+
+3) Run Jupyter Lab
+
+    docker-compose up
+
+  Then open: http://localhost:8888 (tokenless)
+
+Notes
+- CPU-only by default; cuML on Jetson/ARM is out-of-scope for this image. If you need GPU cuML, prefer a host install with RAPIDS or build a custom image.
+- Mounts ensure `data/` and `artifacts/` persist on the host.

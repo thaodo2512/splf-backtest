@@ -313,19 +313,37 @@ def build_minute_frame(
     df.loc[staleness > 2, "data_ok"] = False
     logger.debug(f"final symbol={symbol} shape={df.shape} stale_minutes={stale_cnt}")
 
-    # Enrich from Binance REST ingestion if available
+    # Enrich from REST ingestion if available
     try:
         ing_sym_dir = ingest_base / symbol
         if (ing_sym_dir / "funding.parquet").exists():
             f = pd.read_parquet(ing_sym_dir / "funding.parquet").sort_index()
             f1m = f.reindex(df.index, method="ffill").rename(columns={"funding_now": "funding_now"})
             df = df.join(f1m[["funding_now"]], how="left")
+        elif (ing_sym_dir / "funding_coinalyze.parquet").exists():
+            f = pd.read_parquet(ing_sym_dir / "funding_coinalyze.parquet").sort_index()
+            f1m = f.reindex(df.index, method="ffill").rename(columns={"funding_now": "funding_now"})
+            df = df.join(f1m[["funding_now"]], how="left")
+        oi_path = None
         if (ing_sym_dir / "oi.parquet").exists():
-            oi = pd.read_parquet(ing_sym_dir / "oi.parquet").sort_index()
+            oi_path = ing_sym_dir / "oi.parquet"
+        elif (ing_sym_dir / "oi_coinalyze.parquet").exists():
+            oi_path = ing_sym_dir / "oi_coinalyze.parquet"
+        if oi_path is not None:
+            oi = pd.read_parquet(oi_path).sort_index()
             oi1m = oi.reindex(df.index, method="ffill").rename(columns={"oi": "oi"})
             df = df.join(oi1m[["oi"]], how="left")
         if (ing_sym_dir / "liquidations.parquet").exists():
             liq = pd.read_parquet(ing_sym_dir / "liquidations.parquet").sort_index()
+            grp = liq.groupby(pd.Grouper(freq="1T"))
+            liq_min = pd.DataFrame({
+                "liq_long": grp.apply(lambda g: g.loc[g.get("side", "BUY").str.upper() == "BUY", "qty"].sum()),
+                "liq_short": grp.apply(lambda g: g.loc[g.get("side", "SELL").str.upper() == "SELL", "qty"].sum()),
+                "liq_count": grp.size(),
+            })
+            df = df.join(liq_min, how="left")
+        elif (ing_sym_dir / "liq_coinalyze.parquet").exists():
+            liq = pd.read_parquet(ing_sym_dir / "liq_coinalyze.parquet").sort_index()
             grp = liq.groupby(pd.Grouper(freq="1T"))
             liq_min = pd.DataFrame({
                 "liq_long": grp.apply(lambda g: g.loc[g.get("side", "BUY").str.upper() == "BUY", "qty"].sum()),

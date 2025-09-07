@@ -16,6 +16,15 @@ LOG_FILE="debug.log"
 
 echo "=== E2E START $(date) config=${CONFIG_PATH}" | tee -a "$LOG_FILE"
 
+# Load .env if present to export API keys (e.g., COINALYZE_API_KEY)
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+  echo "Loaded .env" | tee -a "$LOG_FILE"
+fi
+
 echo "[1/6] Checking environment…" | tee -a "$LOG_FILE"
 python scripts/check_env.py | tee -a "$LOG_FILE" || true
 

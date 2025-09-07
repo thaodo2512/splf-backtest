@@ -1,0 +1,68 @@
+# Recent 30-day config (Binance offline + Coinalyze OI)
+
+paths:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  features_dir: data/features
+  artifacts_dir: artifacts
+  ingest_dir: data/ingest-binance
+
+universe:
+  tier_a: ["SOLUSDT"]
+  tier_b: []
+  tier_c: []
+  symbols: ["SOLUSDT"]
+
+# Adjust these dates as needed (last ~30 days)
+period:
+  start: "2025-08-08"
+  end:   "2025-09-07"
+
+datasets:
+  indexPriceKlines_1m: true
+  markPriceKlines_1m: true
+  premiumIndexKlines_1m: true
+  klines_1m: true
+  aggTrades: true
+  bookTicker: true
+  fundingRate_monthly: true
+  spot_aggTrades: false
+
+ingest:
+  binance_rest: true
+  funding: true            # 8h points → funding_now
+  open_interest: false     # prefer Coinalyze OI for long windows
+  liquidations: false
+  depth_bands: false
+  coinalyze:
+    enabled: true
+    api_key_env: COINALYZE_API_KEY
+    # Explicit endpoints for clarity (defaults are used if omitted)
+    endpoint_oi: https://api.coinalyze.net/v1/open-interest-history
+    endpoint_funding: https://api.coinalyze.net/v1/funding-rate-history
+    endpoint_liq: https://api.coinalyze.net/v1/liquidation-history
+    market_prefix: "binance:"
+    interval: 1d            # use 1m only for recent windows (≤1 day)
+
+features:
+  rv_window_min: 15
+  basis_twap_minutes: [60, 120]
+  cvd_windows_min: [5, 15]
+  spot_for: []
+
+backtest:
+  resample_5m: true
+  train_window_days: 14
+  retrain_every_hours: 8
+  score_qtile: 0.97
+  prealert_consecutive_mins: 1
+  confirm_bars_5m: 0
+  mask_funding_minutes: 10
+  horizons_min: [30, 60, 90, 120]
+
+runtime:
+  workers: 0     # auto: min(symbols, cpu cores)
+  force: false
+
+model:
+  backend: auto   # auto | sklearn | cuml (GPU)

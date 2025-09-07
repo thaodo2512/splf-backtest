@@ -59,3 +59,68 @@
 - Specs: Treat `SPLF_Offline_Backtest_Spec_Binance.md` and `backtest_spec.md` as sources of truth; align data fields, event definitions, and metrics with them.
 - TODO.md: Maintain a root `TODO.md`. If missing, create it. Include current goal, decisions, next steps, and exact commands to run; update after each change.
 - Debugging: When issues arise, read `debug.log` at the repo root (git‑ignored), reproduce locally, locate the faulty module, implement a minimal fix with a targeted test, and keep logs out of commits.
+# Repository Guidelines
+
+## Project Structure & Module Organization
+- `splf/` Core library:
+    - `data_handler/` minute builder (joins REST ingests when present).
+    - `feature_engine/` SPLF features (basis/dbasis, premium TWAP → perp_impulse, CVD, share, spread, RV, funding/oi/liq if available).
+    - `backtesting/` walk‑forward runner, labeling, metrics.
+    - `modeling/` Isolation Forest (CPU/GPU backends).
+    - `utils/` YAML/Parquet and helpers; `notebook.py` Jupyter API.
+- `scripts/` CLI:
+    - `download_data.py` (Vision dumps)
+    - `ingest_binance.py` (optional funding/OI/liqs via Binance REST; debug-friendly)
+    - `build_minute_bars.py`, `compute_features.py`, `run_backtest.py`, `analyze_results.py`
+    - `visualize_minute_bar.py`, `check_env.py`, `run_e2e.sh` (loads `.env` automatically)
+- `notebooks/` 01_End_to_End, 02_Visualize_Results
+- `config/` Runtime configs (edit `config.yaml`)
+- Containers: `Dockerfile`, `docker-compose.yml`, `environment.yml`
+- Secrets: `.env` (keep local; not committed) for API keys (e.g., `COINALYZE_API_KEY`)
+
+## Build, Test, and Development Commands
+- Environment (pyenv + conda)
+    - `pyenv local miniforge3-24.11.3-2`
+    - `conda create -n splf -y && conda activate splf`
+    - `pip install -r requirements.txt`
+- Pipeline
+    - `python scripts/check_env.py`
+    - `python scripts/download_data.py --config config/config.yaml`
+    - `(optional) python scripts/ingest_binance.py --config config/config.yaml`
+    - `bash scripts/run_e2e.sh config/config.yaml` (sources `.env` if present)
+- Containers
+    - `docker build -t splf-backtest:latest .`
+    - `docker-compose up` (Jupyter http://localhost:8888; loads `.env`)
+
+## Coding Style & Naming Conventions
+- Python 3; PEP 8; 4‑space indentation; type hints where practical.
+- `snake_case` for functions/modules; `CamelCase` for classes.
+- DataFrames UTC‑indexed by minute; pure functions preferred; use `splf.utils.io.ensure_dir` for writes.
+
+## Testing Guidelines
+- Framework: `pytest` (not bundled). Place tests in `tests/` with `test_*.py`.
+- Validate shapes, required columns, monotone UTC index, and determinism.
+- Run: `pytest -q` (or target a file).
+
+## Commit & PR Guidelines
+- Commits: imperative mood; focused scope. Prefer `feat:`, `fix:`, `docs:`, `refactor:`.
+- PRs include: goal summary, config snippet, repro steps, and sample artifact paths.
+- Do not commit data/artifacts/plots or `.env`.
+
+## Security & Configuration Tips
+- API keys live in `.env` (e.g., `COINALYZE_API_KEY`); never commit secrets.
+- Ingestion outputs joined automatically if present:
+    - Funding: `funding.parquet` (Binance) or `funding_coinalyze.parquet`
+    - OI: `oi.parquet` (Binance) or `oi_coinalyze.parquet`
+    - Liquidations: `liquidations.parquet` (Binance) or `liq_coinalyze.parquet`
+- REST notes:
+    - Binance endpoints can 400/HTML; debug logs print bodies.
+    - Coinalyze: 40 calls/min; on 429 honor `Retry‑After`; 1m retains ~1500–2000 points (~1–1.4 days). Use `1d` for long backtests.
+- Parallelism: set `runtime.workers: 0` (auto) capped by symbol count.
+- GPU: `model.backend: cuml` when RAPIDS available; else `auto/sklearn`.
+
+## Agent-Specific Instructions
+- Act as a professional developer for SPLF. Follow SPLF specs in this repo.
+- Prefer daily OI via Coinalyze for long windows; 1m OI only for recent ranges (≤1 day).
+- Handle REST errors gracefully (`429` Retry‑After, body logs); keep logs out of commits.
+- Keep `.env` for secrets; e2e script and docker‑compose load it automatically.

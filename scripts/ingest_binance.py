@@ -19,7 +19,7 @@ from splf.utils.io import ensure_dir, load_yaml
 
 
 BINANCE_FAPI = "https://fapi.binance.com"
-BINANCE_DATA = "https://futuresdata.binance.com/futures/data"
+BINANCE_DATA = "https://fapi.binance.com/futures/data"
 
 
 def _to_ms(dt: datetime) -> int:
@@ -64,24 +64,43 @@ def fetch_funding(symbol: str, s: datetime, e: datetime, session: Optional[reque
 
 
 def fetch_oi(symbol: str, s: datetime, e: datetime, session: Optional[requests.Session] = None) -> pd.DataFrame:
-    """Fetch open interest history (5m points) in [s, e]."""
+    """Fetch open interest history (5m points) in [s, e]. Shrinks window on HTTP/parse errors."""
     sess = session or requests.Session()
     rows: List[Dict] = []
     start = s
+    window_days = 7
     while start <= e:
+        endw = min(e, start + timedelta(days=window_days))
         params = {
             "symbol": symbol,
             "period": "5m",
             "startTime": _to_ms(start),
-            "endTime": _to_ms(min(e, start + timedelta(days=7))),
+            "endTime": _to_ms(endw),
         }
-        r = sess.get(f"{BINANCE_DATA}/openInterestHist", params=params, timeout=20)
-        r.raise_for_status()
-        data = r.json()
+        url = f"{BINANCE_DATA}/openInterestHist"
+        r = sess.get(url, params=params, timeout=20, headers={"User-Agent": "splf-backtest/1.0"})
+        if r.status_code != 200:
+            print(f"[OI] HTTP {r.status_code} {url} params={params}")
+            if window_days > 1:
+                window_days = max(1, window_days // 2)
+                continue
+            else:
+                break
+        try:
+            data = r.json()
+        except Exception:
+            txt = (r.text or "")[:200]
+            print(f"[OI] Non-JSON response ({len(r.text)} bytes): {txt}…")
+            if window_days > 1:
+                window_days = max(1, window_days // 2)
+                continue
+            else:
+                break
         if not data:
-            break
+            start = endw + timedelta(milliseconds=1)
+            continue
         rows.extend(data)
-        last_ms = int(data[-1]["timestamp"]) if "timestamp" in data[-1] else int(data[-1]["time"])  # type: ignore
+        last_ms = int(data[-1].get("timestamp") or data[-1].get("time") or _to_ms(start))
         start = datetime.fromtimestamp(last_ms / 1000.0, tz=timezone.utc) + timedelta(milliseconds=1)
         time.sleep(0.2)
     if not rows:
@@ -105,22 +124,41 @@ def fetch_oi(symbol: str, s: datetime, e: datetime, session: Optional[requests.S
 
 
 def fetch_liquidations(symbol: str, s: datetime, e: datetime, session: Optional[requests.Session] = None) -> pd.DataFrame:
-    """Fetch liquidation orders in [s, e] and return events with ts, side, price, qty."""
+    """Fetch liquidation orders in [s, e] and return events with ts, side, price, qty. Shrinks window on HTTP/parse errors."""
     sess = session or requests.Session()
     rows: List[Dict] = []
     start = s
+    window_hours = 24
     while start <= e:
+        endw = min(e, start + timedelta(hours=window_hours))
         params = {
             "symbol": symbol,
             "startTime": _to_ms(start),
-            "endTime": _to_ms(min(e, start + timedelta(days=2))),
+            "endTime": _to_ms(endw),
             "limit": 1000,
         }
-        r = sess.get(f"{BINANCE_FAPI}/fapi/v1/allForceOrders", params=params, timeout=20)
-        r.raise_for_status()
-        data = r.json()
+        url = f"{BINANCE_FAPI}/fapi/v1/allForceOrders"
+        r = sess.get(url, params=params, timeout=20, headers={"User-Agent": "splf-backtest/1.0"})
+        if r.status_code != 200:
+            print(f"[LIQ] HTTP {r.status_code} {url} params={params}")
+            if window_hours > 1:
+                window_hours = max(1, window_hours // 2)
+                continue
+            else:
+                break
+        try:
+            data = r.json()
+        except Exception:
+            txt = (r.text or "")[:200]
+            print(f"[LIQ] Non-JSON response ({len(r.text)} bytes): {txt}…")
+            if window_hours > 1:
+                window_hours = max(1, window_hours // 2)
+                continue
+            else:
+                break
         if not data:
-            break
+            start = endw + timedelta(milliseconds=1)
+            continue
         rows.extend(data)
         last_ms = int(data[-1].get("time") or data[-1].get("updateTime") or _to_ms(start))
         start = datetime.fromtimestamp(last_ms / 1000.0, tz=timezone.utc) + timedelta(milliseconds=1)
@@ -191,4 +229,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
